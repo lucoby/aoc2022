@@ -4,3 +4,5 @@ venv/
 
 */in*.txt
 */ex*.txt
+
+res.json
