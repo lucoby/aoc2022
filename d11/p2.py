@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Callable
 
-from util import lines
-
 
 @dataclass
 class Monkey:
