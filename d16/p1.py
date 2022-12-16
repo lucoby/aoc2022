@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+from queue import PriorityQueue
 from typing import Dict
 
 import networkx as nx
 
 from util import lines
+
 
 @dataclass
 class Valve:
@@ -22,22 +24,41 @@ class Valve:
         return Valve(name=name, flow_rate=flow_rate), tunnels
 
 
-def best_path(valves, opened, time, current, total_pressure):
-    if time <= 0:
-        return total_pressure
-    best_pressure = total_pressure
-    for v, valve in valves.items():
-        if v not in opened:
-            distance = valves[current].distance[v] + 1
-            pressure = (time - distance) * valve.flow_rate + total_pressure
-            new_opened = opened.copy()
-            new_opened.add(v)
-            final_pressure = best_path(valves, new_opened, time - distance, v, pressure)
-            best_pressure = max(best_pressure, final_pressure)
-    return best_pressure
+def heuristic(valves, opened, time):
+    flow = sum([valve.flow_rate for v, valve in valves.items() if v not in opened])
+    return flow * time
 
 
-if __name__ == '__main__':
+def best_path(valves, time):
+    q = PriorityQueue()
+    q.put((0, time, frozenset({"AA"}), "AA", 0))
+
+    while not q.empty():
+        u = q.get()
+        _, time, opened, current, total_pressure = u
+
+        if time == 0 or len(opened) == len(valves):
+            return total_pressure
+
+        for v, valve in valves.items():
+            if v not in opened:
+                distance = valves[current].distance[v] + 1
+                if distance <= time:
+                    time_left = time - distance
+                    pressure = time_left * valve.flow_rate + total_pressure
+                    new_opened = opened | {v}
+                else:
+                    new_opened = opened
+                    pressure = total_pressure
+                    time_left = 0
+
+                h = heuristic(valves, new_opened, time_left) + pressure
+
+                n = (-h, time_left, new_opened, v, pressure)
+                q.put(n)
+
+
+if __name__ == "__main__":
     valves = {}
     g = nx.Graph()
     for l in lines("in1.txt"):
@@ -53,11 +74,6 @@ if __name__ == '__main__':
 
     valves = {v: valve for v, valve in valves.items() if v == "AA" or valve.flow_rate > 0}
 
-    time = 30
-    current = "AA"
-    opened = set()
-    total_pressure = best_path(valves, opened, 30, current, 0)
-    print(total_pressure)
+    max_pressure = best_path(valves, 30)
 
-
-    print(valves)
+    print(max_pressure)
