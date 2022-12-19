@@ -1,18 +1,48 @@
 from dataclasses import dataclass
-from functools import lru_cache
+from math import ceil
+from queue import PriorityQueue
 
 from util import linenumbers
 
 
-@dataclass
+@dataclass(frozen=True)
 class Res:
     ore: int = 0
     clay: int = 0
     obs: int = 0
     geode: int = 0
 
-    def __hash__(self):
-        return hash((self.ore, self.clay, self.obs, self.geode))
+    def add_res(self, min, robots):
+        return Res(
+            self.ore + robots.ore * min,
+            self.clay + robots.clay * min,
+            self.obs + robots.obs * min,
+            self.geode + robots.geode * min,
+        )
+
+    def add_ore(self):
+        return Res(self.ore + 1, self.clay, self.obs, self.geode)
+
+    def add_clay(self):
+        return Res(self.ore, self.clay + 1, self.obs, self.geode)
+
+    def add_obs(self):
+        return Res(self.ore, self.clay, self.obs + 1, self.geode)
+
+    def add_geode(self):
+        return Res(self.ore, self.clay, self.obs, self.geode + 1)
+
+    def build_robot(self, robot):
+        return Res(self.ore - robot.ore, self.clay - robot.clay, self.obs - robot.obs, self.geode)
+
+    def __lt__(self, other):
+        if self.ore != other.ore:
+            return self.ore < other.ore
+        if self.clay != other.clay:
+            return self.clay < other.ore
+        if self.obs != other.obs:
+            return self.obs < other.obs
+        return self.geode < other.geode
 
 
 @dataclass
@@ -22,87 +52,83 @@ class Blueprint:
     obs: Res
     geode: Res
 
-    def __hash__(self):
-        return hash((self.ore.__hash__(), self.clay.__hash__(), self.obs.__hash__(), self.geode.__hash__()))
+
+def heuristic(time, robots, res):
+    return -((time + 1) * time / 2 + robots.geode * time + res.geode)
 
 
-@lru_cache(maxsize=None)
-def get_max_geodes(blueprint, min, robots, res):
-    if min == 24:
-        return res.geode + robots.geode
+def get_max_geodes(blueprint, min):
+    q = PriorityQueue()
 
-    if robots.ore > max(blueprint.ore.ore, blueprint.clay.ore, blueprint.obs.ore, blueprint.geode.ore) or robots.clay > (blueprint.obs.clay / blueprint.obs.ore * robots.ore) + 2 or robots.obs > (blueprint.geode.obs / blueprint.geode.ore * robots.ore) + 2:
-        return 0
+    q.put((0, min, Res(1, 0, 0, 0), Res(0, 0, 0, 0)))
+    while not q.empty():
+        u = q.get()
+        _, time, robots, res = u
 
-    if blueprint.geode.ore <= res.ore and blueprint.geode.obs <= res.obs:
-        return get_max_geodes(
-            blueprint,
-            min + 1,
-            Res(ore=robots.ore , clay=robots.clay, obs=robots.obs, geode=robots.geode + 1),
-            Res(
-                ore=res.ore + robots.ore - blueprint.geode.ore,
-                clay=res.clay + robots.clay,
-                obs=res.obs + robots.obs - blueprint.geode.obs,
-                geode=res.geode + robots.geode,
-            ),
-        )
+        if time == 0:
+            return res.geode
 
-    max_geodes = []
-    if blueprint.ore.ore <= res.ore:
-        max_geodes.append(
-            get_max_geodes(
-                blueprint,
-                min + 1,
-                Res(ore=robots.ore + 1, clay=robots.clay, obs=robots.obs, geode=robots.geode),
-                Res(
-                    ore=res.ore + robots.ore - blueprint.ore.ore,
-                    clay=res.clay + robots.clay,
-                    obs=res.obs + robots.obs,
-                    geode=res.geode + robots.geode,
-                ),
-            ),
-        )
-    if blueprint.clay.ore <= res.ore:
-        max_geodes.append(
-            get_max_geodes(
-                blueprint,
-                min + 1,
-                Res(ore=robots.ore, clay=robots.clay + 1, obs=robots.obs, geode=robots.geode),
-                Res(
-                    ore=res.ore + robots.ore - blueprint.clay.ore,
-                    clay=res.clay + robots.clay,
-                    obs=res.obs + robots.obs,
-                    geode=res.geode + robots.geode,
-                ),
-            ),
-        )
-    if blueprint.obs.ore <= res.ore and blueprint.obs.clay <= res.clay:
-        max_geodes.append(
-            get_max_geodes(
-                blueprint,
-                min + 1,
-                Res(ore=robots.ore , clay=robots.clay, obs=robots.obs + 1, geode=robots.geode),
-                Res(
-                    ore=res.ore + robots.ore - blueprint.obs.ore,
-                    clay=res.clay + robots.clay - blueprint.obs.clay,
-                    obs=res.obs + robots.obs,
-                    geode=res.geode + robots.geode,
-                ),
-            ),
-        )
+        added_robot = False
 
-    max_geodes.append(get_max_geodes(
-            blueprint,
-            min + 1,
-            robots,
-            Res(
-                ore=res.ore + robots.ore,
-                clay=res.clay + robots.clay,
-                obs=res.obs + robots.obs,
-                geode=res.geode + robots.geode,
-            ),
-        ))
-    return max(max_geodes)
+        if robots.ore < max(blueprint.ore.ore, blueprint.clay.ore, blueprint.obs.ore, blueprint.geode.ore):
+            time_diff = max(ceil((blueprint.ore.ore - res.ore) / robots.ore), 0) + 1
+            next_time = time - time_diff
+            if next_time >= 0:
+                next_robots = robots.add_ore()
+                next_res = res.add_res(time_diff, robots).build_robot(blueprint.ore)
+                h = heuristic(next_time, next_robots, next_res)
+                q.put((h, next_time, next_robots, next_res))
+                added_robot = True
+
+        if robots.clay <= (blueprint.obs.clay / blueprint.obs.ore * robots.ore) + 3:
+            time_diff = max(ceil((blueprint.clay.ore - res.ore) / robots.ore), 0) + 1
+            next_time = time - time_diff
+            if next_time >= 0:
+                next_robots = robots.add_clay()
+                next_res = res.add_res(time_diff, robots).build_robot(blueprint.clay)
+                h = heuristic(next_time, next_robots, next_res)
+                q.put((h, next_time, next_robots, next_res))
+                added_robot = True
+
+        if robots.clay > 0 and robots.obs < (blueprint.geode.obs / blueprint.geode.ore * robots.ore) + 3:
+            time_diff = (
+                max(
+                    ceil((blueprint.obs.ore - res.ore) / robots.ore),
+                    ceil((blueprint.obs.clay - res.clay) / robots.clay),
+                    0,
+                )
+                + 1
+            )
+            next_time = time - time_diff
+            if next_time >= 0:
+                next_robots = robots.add_obs()
+                next_res = res.add_res(time_diff, robots).build_robot(blueprint.obs)
+                h = heuristic(next_time, next_robots, next_res)
+                q.put((h, next_time, next_robots, next_res))
+                added_robot = True
+
+        if robots.obs > 0:
+            time_diff = (
+                max(
+                    ceil((blueprint.geode.ore - res.ore) / robots.ore),
+                    ceil((blueprint.geode.obs - res.obs) / robots.obs),
+                    0,
+                )
+                + 1
+            )
+            next_time = time - time_diff
+            if next_time >= 0:
+                next_robots = robots.add_geode()
+                next_res = res.add_res(time_diff, robots).build_robot(blueprint.geode)
+                h = heuristic(next_time, next_robots, next_res)
+                q.put((h, next_time, next_robots, next_res))
+                added_robot = True
+
+        if not added_robot:
+            next_res = res.add_res(time, robots)
+            h = heuristic(0, robots, next_res)
+            q.put((h, 0, robots, next_res))
+
 
 if __name__ == "__main__":
     all_q = 0
@@ -114,13 +140,13 @@ if __name__ == "__main__":
         geode_ore, rest = rest.split(" ore and ")
         geode_obs, rest = rest.split(" obsidian.")
         blueprint = Blueprint(
-            ore=Res(ore=int(ore_ore)),
-            clay=Res(ore=int(clay_ore)),
-            obs=Res(ore=int(obs_ore), clay=int(obs_clay)),
-            geode=Res(ore=int(geode_ore), obs=int(geode_obs)),
+            Res(int(ore_ore)),
+            Res(int(clay_ore)),
+            Res(int(obs_ore), clay=int(obs_clay)),
+            Res(int(geode_ore), obs=int(geode_obs)),
         )
         print(blueprint)
-        geodes = get_max_geodes(blueprint, 1, Res(ore=1), Res())
+        geodes = get_max_geodes(blueprint, 24)
         quality = geodes * (i + 1)
         print(geodes)
         all_q += quality
