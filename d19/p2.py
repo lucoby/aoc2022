@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from math import ceil
+from datetime import datetime
+from math import ceil, prod
+from multiprocessing import Pool
 from queue import PriorityQueue
 
 from util import linenumbers
@@ -129,8 +131,15 @@ def get_max_geodes(blueprint, min):
             h = heuristic(0, robots, next_res)
             q.put((h, 0, robots, next_res))
 
+
+def quality(blueprint):
+    geodes = get_max_geodes(blueprint, 32)
+    return geodes
+
+
 if __name__ == "__main__":
-    all_q = 1
+    start = datetime.now()
+    blueprints = []
     for i, l in linenumbers("in1.txt"):
         if i < 3:
             ore_ore, rest = l[34:].split(" ore. Each clay robot costs ")
@@ -145,8 +154,7 @@ if __name__ == "__main__":
                 obs=Res(ore=int(obs_ore), clay=int(obs_clay)),
                 geode=Res(ore=int(geode_ore), obs=int(geode_obs)),
             )
-            print(blueprint)
-            geodes = get_max_geodes(blueprint, 32)
-            print(geodes)
-            all_q *= geodes
-    print(all_q)
+            blueprints.append(blueprint)
+    with Pool(8) as p:
+        print(prod(p.map(quality, blueprints)))
+    print(datetime.now() - start)
